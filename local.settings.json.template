@@ -1,0 +1,20 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "DefaultEndpointProtocol=https;AccountName=<STORAGE_ACCOUNT>;AccountKey=<STORAGE_KEY>;EndpointSuffix=core.windows.net",
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "FUNCTIONS_EXTENSION_VERSION": "~4",
+    "COSMOS_CONNECTION_STRING": "DefaultEndpointProtocol=https;AccountEndpoint=https://<COSMOS_ACCOUNT>.documents.azure.com:443/;AccountKey=<COSMOS_KEY>;",
+    "COSMOS_DATABASE_ID": "taniwise-prod",
+    "OPENAI_API_KEY": "sk-...",
+    "OPENAI_ENDPOINT": "https://<RESOURCE_NAME>.openai.azure.com/",
+    "OPENAI_MODEL": "gpt-4",
+    "FONNTE_API_TOKEN": "your-fonnte-token-here",
+    "FONNTE_DEVICE_ID": "your-device-id-here",
+    "AZURE_VISION_KEY": "your-vision-api-key",
+    "AZURE_VISION_ENDPOINT": "https://<REGION>.api.cognitive.microsoft.com/",
+    "OPENWEATHERMAP_API_KEY": "your-openweathermap-key",
+    "PIHPS_API_KEY": "optional-pihps-key",
+    "LOG_LEVEL": "INFO"
+  }
+}
