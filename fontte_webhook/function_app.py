@@ -6,6 +6,7 @@ import azure.functions as func
 import json
 import logging
 import os
+import requests
 from datetime import datetime
 
 # Import shared modules
