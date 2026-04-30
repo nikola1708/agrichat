@@ -6,7 +6,7 @@
 2. Start Ollama server locally (example):
 
 ```powershell
-ollama server
+ollama serve
 ```
 
 3. Pull or install a model locally (example):
@@ -26,3 +26,5 @@ ollama pull <model-name>
 Notes:
 - Ollama endpoints and response shapes may vary by version. If responses are empty,
   check the server logs and adjust `shared/ai_engine.py` endpoint paths accordingly.
+- If `ollama serve` is not recognized, update Ollama to the current release and
+   re-run the command above.

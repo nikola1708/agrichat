@@ -16,6 +16,7 @@ from shared.recommendation_engine import RecommendationEngine
 from shared.weather_service import WeatherService
 from shared.price_service import PriceService
 from shared.telegram_api import TelegramAPIClient
+from shared.ai_engine import detect_indonesian
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -147,9 +148,15 @@ def _should_include_prices(message: str) -> bool:
 async def handle_text_message(chat_id: str, message: str) -> str:
     """
     Handle incoming text messages from Telegram - with casual conversation.
+    Only processes Indonesian language messages.
     """
     try:
         logger.info(f"Processing text message from {chat_id}: {message[:50]}...")
+
+        # Check if message is in Indonesian language
+        if not detect_indonesian(message):
+            logger.info(f"Non-Indonesian message detected from {chat_id}: {message[:30]}")
+            return "Maaf, saya hanya bisa mengerti bahasa Indonesia. 🇮🇩\n\nSilakan tulis pesan dalam bahasa Indonesia ya!"
 
         # Handle casual interactions - with error handling
         try:
@@ -187,24 +194,15 @@ async def handle_text_message(chat_id: str, message: str) -> str:
         weather_data = weather_service.get_current_weather(latitude, longitude)
         price_data = price_service.get_commodity_prices()
 
-        recommendation = recommendation_engine.get_recommendation(
-            query=message,
+        # Use AI engine directly for quick, direct answers with context
+        from shared.ai_engine import get_ai_engine
+        ai_engine = get_ai_engine()
+        response = ai_engine.generate_response(
+            user_id=chat_id,
+            message=message,
             weather_data=weather_data,
-            price_data=price_data,
-            farmer_context=farmer_profile
+            price_data=price_data
         )
-
-        response = recommendation_engine.format_recommendation_response(recommendation)
-
-        # Only include weather if user asks about it
-        if _should_include_weather(message) and weather_data:
-            weather_msg = weather_service.format_weather_message(weather_data)
-            response = f"{response}\n\n{weather_msg}"
-
-        # Only include prices if user asks about it
-        if _should_include_prices(message):
-            price_msg = price_service.get_price_recommendation(["padi", "jagung", "cabai_merah"])
-            response = f"{response}\n\n{price_msg}"
 
         history_entry = {
             "type": "text",
