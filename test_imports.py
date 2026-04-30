@@ -22,10 +22,10 @@ except ImportError as e:
     print(f"❌ requests: {e}")
 
 try:
-    import openai
-    print("✅ openai")
+    import google.generativeai
+    print("✅ google.generativeai")
 except ImportError as e:
-    print(f"❌ openai: {e}")
+    print(f"❌ google.generativeai: {e}")
 
 try:
     from PIL import Image

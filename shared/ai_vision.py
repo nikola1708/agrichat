@@ -1,30 +1,33 @@
 """
-Plant diagnosis using OpenAI GPT-4 Vision
+Plant diagnosis using Azure Vision API + Ollama LLM for disease analysis
 """
 import logging
 import requests
 from typing import Optional, Dict, Any
 import os
-from openai import OpenAI
 from io import BytesIO
 from PIL import Image
 import base64
+from datetime import datetime, timedelta
+import json
 
 logger = logging.getLogger(__name__)
 
 
 class PlantDiagnosisEngine:
-    """Diagnose plant diseases using OpenAI GPT-4 Vision"""
+    """Diagnose plant diseases using Azure Vision API + Ollama"""
 
     def __init__(self):
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY environment variable not set")
-        
         self.vision_key = os.getenv("AZURE_VISION_KEY")
         self.vision_endpoint = os.getenv("AZURE_VISION_ENDPOINT")
-        self.openai_client = OpenAI(api_key=api_key)
-        self.model = "gpt-4-vision-preview"
+        
+        if not self.vision_key or not self.vision_endpoint:
+            raise ValueError("AZURE_VISION_KEY and AZURE_VISION_ENDPOINT environment variables must be set")
+        
+        # Import ai_engine locally to get Ollama config
+        from shared.ai_engine import get_ai_engine
+        self.ai_engine = get_ai_engine()
+        self.quota_exceeded_until = None
 
     def download_image(self, image_url: str) -> Optional[bytes]:
         """Download image from URL"""
@@ -47,42 +50,61 @@ class PlantDiagnosisEngine:
             logger.error(f"Invalid image format: {str(e)}")
             return False
 
+    def _get_fallback_diagnosis(self) -> Dict[str, Any]:
+        """Provide fallback diagnosis when API quota is exceeded"""
+        return {
+            "plant_name": "Tanaman (Tidak teridentifikasi)",
+            "health_status": "tidak pasti",
+            "disease_name": "Tidak dapat dianalisis saat ini",
+            "confidence": "0%",
+            "symptoms": "Foto tidak dapat dianalisis karena keterbatasan sistem. Silakan coba lagi nanti atau hubungi dinas pertanian lokal untuk konsultasi gratis.",
+            "nutrient_deficiency": "Tidak terdeteksi tanpa analisis",
+            "treatment_recommendation": "Sementara menunggu, tips umum:\n• Pastikan tanaman mendapat air yang cukup (sesuai jenis tanaman)\n• Jangan over-watering\n• Berikan cahaya matahari minimal 6 jam/hari\n• Gunakan pupuk organik untuk nutrisi optimal",
+            "urgency_level": "medium",
+            "is_fallback": True
+        }
+
     def analyze_plant_image(self, image_url: str) -> Dict[str, Any]:
-        """Analyze plant image for disease diagnosis"""
+        """Analyze plant image for disease diagnosis using Azure Vision + Ollama"""
         try:
+            # Check if quota was recently exceeded
+            if self.quota_exceeded_until and datetime.now() < self.quota_exceeded_until:
+                logger.warning(f"API quota still exceeded, using fallback until {self.quota_exceeded_until}")
+                return {
+                    **self._get_fallback_diagnosis(),
+                    "status": "fallback",
+                    "image_url": image_url
+                }
+            
             # Download and validate image
             image_data = self.download_image(image_url)
             if not image_data:
                 return {
                     "status": "error",
-                    "message": "Failed to download image"
+                    "message": "Gagal mengunduh foto. Pastikan koneksi internet baik dan coba lagi."
                 }
 
             if not self.validate_plant_image(image_data):
                 return {
                     "status": "error",
-                    "message": "Invalid image format"
+                    "message": "Format foto tidak valid. Silakan kirim foto tanaman dalam format JPG atau PNG."
                 }
 
-            # Convert to base64 for GPT-4o Vision
-            image_base64 = base64.b64encode(image_data).decode("utf-8")
+            # Step 1: Use Azure Vision API to describe the plant image
+            image_description = self._analyze_with_azure_vision(image_data)
+            if not image_description:
+                return {
+                    "status": "error",
+                    "message": "Gagal menganalisis foto dengan Azure Vision. Silakan coba lagi."
+                }
 
-            # Call GPT-4o Vision for diagnosis
-            response = self.openai_client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{image_base64}"
-                                }
-                            },
-                            {
-                                "type": "text",
-                                "text": """Analisis foto tanaman ini sebagai ahli agronomi Indonesia:
+            # Step 2: Use Ollama to generate diagnosis based on the image description
+            diagnosis_prompt = f"""Anda adalah ahli agronomi Indonesia. Analisis deskripsi tanaman ini dan berikan diagnosis:
+
+DESKRIPSI FOTO:
+{image_description}
+
+Analisis sebagai ahli agronomi:
 
 1. IDENTIFIKASI KONDISI:
    - Nama tanaman (jika terlihat)
@@ -103,85 +125,154 @@ class PlantDiagnosisEngine:
    - Obat/pupuk yang direkomendasikan
    - Langkah penyelamatan jika kritis
 
-Format respons sebagai JSON dengan keys: 
-plant_name, health_status, disease_name, confidence, symptoms, 
-nutrient_deficiency, treatment_recommendation, urgency_level
+Berikan respons JSON dengan keys: plant_name, health_status, disease_name, confidence, symptoms, nutrient_deficiency, treatment_recommendation, urgency_level
 """
-                            }
-                        ]
-                    }
-                ],
-                max_tokens=1000,
-                temperature=0.7
+
+            response_text = self.ai_engine.generate_response(
+                user_id="plant_diagnosis",
+                message=diagnosis_prompt
             )
 
-            # Parse response
-            diagnosis_text = response.choices[0].message.content
-            
-            # Try to extract JSON if model returns it
-            import json
+            # Parse JSON from response
+            diagnosis_data = {}
             try:
                 # Extract JSON from response if wrapped in markdown
-                if diagnosis_text and "```json" in diagnosis_text:
-                    json_str = diagnosis_text.split("```json")[1].split("```")[0].strip()
-                elif diagnosis_text and "{" in diagnosis_text:
-                    start = diagnosis_text.find("{")
-                    end = diagnosis_text.rfind("}") + 1
-                    json_str = diagnosis_text[start:end]
+                if response_text and "```json" in response_text:
+                    json_str = response_text.split("```json")[1].split("```")[0].strip()
+                elif response_text and "{" in response_text:
+                    start = response_text.find("{")
+                    end = response_text.rfind("}") + 1
+                    json_str = response_text[start:end]
                 else:
-                    json_str = diagnosis_text or "{}"
+                    json_str = response_text or "{}"
 
-                diagnosis_data = json.loads(json_str) if json_str else {}
-            except:
-                # If JSON parsing fails, return raw text
-                diagnosis_data = {"raw_analysis": diagnosis_text or "No analysis available"}
+                if json_str:
+                    diagnosis_data = json.loads(json_str)
+            except json.JSONDecodeError:
+                logger.warning("Could not parse JSON from Ollama response, using raw text")
+                diagnosis_data = {"raw_analysis": response_text or "No analysis available"}
 
             diagnosis_data["status"] = "success"
             diagnosis_data["image_url"] = image_url
 
             logger.info(f"Plant diagnosis completed successfully")
+            # Clear quota exceeded flag on success
+            self.quota_exceeded_until = None
             return diagnosis_data
 
         except Exception as e:
-            logger.error(f"Error analyzing plant image: {str(e)}")
+            error_str = str(e)
+            logger.error(f"Error analyzing plant image: {error_str}")
+            
+            # Check if this is a quota/rate limit error (429)
+            if "429" in error_str or "quota" in error_str.lower() or "exceeded" in error_str.lower():
+                logger.warning("Vision API quota exceeded, switching to fallback mode")
+                # Set quota exceeded for 1 minute to avoid hammering API
+                self.quota_exceeded_until = datetime.now() + timedelta(minutes=1)
+                return {
+                    **self._get_fallback_diagnosis(),
+                    "status": "fallback",
+                    "message": "⚠️ Sistem analisis gambar sedang dalam maintenance. Gunakan tips di bawah ini sementara menunggu.",
+                    "image_url": image_url
+                }
+            
             return {
                 "status": "error",
-                "message": f"Diagnosis failed: {str(e)}"
+                "message": f"Gagal menganalisis foto: {error_str[:100]}"
             }
 
+    def _analyze_with_azure_vision(self, image_data: bytes) -> Optional[str]:
+        """Use Azure Computer Vision API to describe the plant image"""
+        try:
+            url = f"{self.vision_endpoint}/vision/v3.2/describe"
+            headers = {
+                "Ocp-Apim-Subscription-Key": self.vision_key,
+                "Content-Type": "application/octet-stream"
+            }
+            params = {"maxCandidates": "1"}
+            
+            response = requests.post(
+                url,
+                headers=headers,
+                params=params,
+                data=image_data,
+                timeout=30
+            )
+            
+            response.raise_for_status()
+            result = response.json()
+            
+            # Extract description from Azure Vision response
+            if "description" in result and "captions" in result["description"]:
+                captions = result["description"]["captions"]
+                if captions:
+                    return captions[0].get("text", "")
+            
+            if "description" in result:
+                return result["description"].get("text", "")
+                
+            return None
+            
+        except Exception as e:
+            logger.error(f"Azure Vision API error: {str(e)}")
+            return None
+
     def format_diagnosis_response(self, diagnosis: Dict[str, Any]) -> str:
-        """Format diagnosis for WhatsApp message"""
+        """Format diagnosis for Telegram message - casual & conversational"""
         if diagnosis.get("status") == "error":
-            return f"❌ Error: {diagnosis.get('message', 'Unknown error')}"
+            error_msg = diagnosis.get('message', 'Gagal menganalisis foto')
+            return f"Hmm, ada masalah: {error_msg}\n\nSilakan coba kirim foto lagi atau hubungi support jika masalah berlanjut."
 
-        lines = ["🔍 ANALISIS FOTO TANAMAN\n"]
+        lines = []
+        
+        # Add fallback notice if applicable
+        if diagnosis.get("is_fallback"):
+            lines.append("⚠️ Analisis Terbatas (Mode Offline)\n")
+        else:
+            lines.append("🔍 Hasil Analisis Tanaman Anda\n")
 
-        if "plant_name" in diagnosis:
-            lines.append(f"🌿 Tanaman: {diagnosis.get('plant_name', 'Unknown')}")
+        # Natural conversational opening
+        plant_name = diagnosis.get('plant_name', 'tanaman Anda')
+        lines.append(f"Baik, saya lihat {plant_name}.")
 
-        if "health_status" in diagnosis:
-            status_emoji = "✅" if diagnosis["health_status"] == "sehat" else "⚠️"
-            lines.append(f"{status_emoji} Status: {diagnosis.get('health_status', 'Unknown')}")
+        # Health status with emoji
+        status = diagnosis.get("health_status", "unknown")
+        if status == "sehat":
+            lines.append("✅ Bagus! Tanaman ini terlihat sehat dan segar.")
+        elif status == "stres":
+            lines.append("⚠️ Tanaman menunjukkan tanda-tanda stres.")
+        elif status == "sakit":
+            lines.append("🚨 Tanaman ini tampak mengalami gangguan kesehatan.")
+        else:
+            lines.append(f"Status kesehatan: {status}")
 
-        if "disease_name" in diagnosis:
-            lines.append(f"🦠 Penyakit: {diagnosis.get('disease_name', 'Tidak terdeteksi')}")
-            if "confidence" in diagnosis:
-                lines.append(f"   Keyakinan: {diagnosis.get('confidence')}%")
+        # Disease info if present
+        disease = diagnosis.get("disease_name", "")
+        if disease and disease != "Tidak terdeteksi":
+            confidence = diagnosis.get("confidence", "?")
+            lines.append(f"\n🦠 Kemungkinan masalah: {disease}")
+            lines.append(f"Keyakinan: {confidence}")
+            
+            symptoms = diagnosis.get("symptoms", "")
+            if symptoms:
+                lines.append(f"Gejala yang terlihat: {symptoms}")
 
-        if "symptoms" in diagnosis:
-            lines.append(f"📋 Gejala: {diagnosis.get('symptoms')}")
+        # Nutrient deficiency
+        nutrient = diagnosis.get("nutrient_deficiency", "")
+        if nutrient and nutrient != "Tidak terdeteksi":
+            lines.append(f"\n🌱 Kekurangan nutrisi: {nutrient}")
 
-        if "nutrient_deficiency" in diagnosis:
-            lines.append(f"🥗 Nutrisi: {diagnosis.get('nutrient_deficiency')}")
-
-        if "treatment_recommendation" in diagnosis:
-            lines.append(f"\n💡 Rekomendasi:")
-            treatment = diagnosis.get('treatment_recommendation') or "Not available"
+        # Treatment with casual tone
+        treatment = diagnosis.get("treatment_recommendation", "")
+        if treatment:
+            lines.append(f"\n💡 Yang bisa kamu lakukan:")
             lines.append(treatment)
 
-        if "urgency_level" in diagnosis:
-            urgency = diagnosis.get('urgency_level')
-            if urgency == "critical":
-                lines.append("\n🚨 URGENSI: TINGGI - Ambil tindakan segera!")
+        # Urgency warning
+        urgency = diagnosis.get("urgency_level", "")
+        if urgency == "critical":
+            lines.append("\n🚨 Ini penting! Ambil tindakan dalam 24 jam ke depan ya!")
+        elif urgency == "high":
+            lines.append("\n⚡ Sebaiknya ditangani segera dalam beberapa hari.")
 
         return "\n".join(lines)

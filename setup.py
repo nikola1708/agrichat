@@ -18,7 +18,7 @@ setup(
         "azure-identity==1.14.0",
         "requests==2.31.0",
         "python-dotenv==1.0.0",
-        "openai==1.3.0",
+        "google-generativeai>=0.4.0",
         "Pillow==10.0.1",
         "aiohttp==3.9.0"
     ],

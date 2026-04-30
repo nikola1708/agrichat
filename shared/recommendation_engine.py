@@ -1,25 +1,65 @@
 """
-Farm recommendation engine using OpenAI GPT-4
+Farm recommendation engine using Ollama LLM with fallback support
 """
 import logging
 import json
 from typing import Dict, Any, Optional
-from openai import OpenAI
 import os
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
 
 class RecommendationEngine:
-    """Generate farming recommendations using OpenAI GPT-4"""
+    """Generate farming recommendations using Ollama LLM"""
 
     def __init__(self):
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY environment variable not set")
+        # Import ai_engine locally to get Ollama config
+        from shared.ai_engine import get_ai_engine
+        self.ai_engine = get_ai_engine()
+        self.response_cache = {}
+        self.quota_exceeded_until = None
+
+    def _get_fallback_recommendation(self, query: str, price_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Provide fallback recommendation when API quota is exceeded"""
+        # Simple rule-based recommendations for common crops
+        query_lower = query.lower()
         
-        self.openai_client = OpenAI(api_key=api_key)
-        self.model = os.getenv("OPENAI_MODEL", "gpt-4")
+        fallback_recs = {
+            "top_recommendation": {
+                "crop": "PADI",
+                "confidence": "sedang",
+                "reason": "Komoditas stabil sepanjang tahun dengan permintaan konsisten",
+                "timing": "Tanam dalam 2-3 minggu",
+                "expected_return": "Rp 3000-4000/kg"
+            },
+            "alternatives": [
+                {
+                    "crop": "JAGUNG",
+                    "reason": "Alternatif dengan ROI menarik jika harga stabil",
+                    "timing": "Musim penghujan optimal"
+                },
+                {
+                    "crop": "SAYURAN DAUN (Bayam, Kangkung)",
+                    "reason": "Panen cepat (30 hari), cocok untuk tambahan pendapatan",
+                    "timing": "Bisa tanam kapan saja"
+                }
+            ],
+            "to_avoid": [
+                {
+                    "crop": "CABAI MERAH",
+                    "reason": "Harga sedang turun, risiko tinggi"
+                }
+            ],
+            "action_items": [
+                "Siapkan lahan dan kompos minimal 1 minggu sebelum tanam",
+                "Monitor cuaca lokal sebelum menentukan jadwal tanam",
+                "Hubungi dinas pertanian untuk info subsidi/bantuan bibit"
+            ],
+            "is_fallback": True
+        }
+        
+        return fallback_recs
 
     def get_recommendation(
         self,
@@ -41,6 +81,11 @@ class RecommendationEngine:
             Recommendation with plants, timing, and rationale
         """
         try:
+            # Check if quota was recently exceeded
+            if self.quota_exceeded_until and datetime.now() < self.quota_exceeded_until:
+                logger.warning(f"API quota still exceeded, using fallback until {self.quota_exceeded_until}")
+                return self._get_fallback_recommendation(query, price_data)
+            
             # Build context message
             context_parts = []
 
@@ -55,8 +100,8 @@ class RecommendationEngine:
 
             context_str = "\n\n".join(context_parts)
 
-            # Create system prompt
-            system_prompt = """Anda adalah ahli agronomi dan ekonomi pertanian Indonesia dengan 20+ tahun pengalaman.
+            # Create system + recommendation prompt for Ollama
+            recommendation_prompt = f"""Anda adalah ahli agronomi dan ekonomi pertanian Indonesia dengan 20+ tahun pengalaman.
 Tugas Anda memberikan rekomendasi SPESIFIK, PRAKTIS, dan BERBASIS DATA untuk petani kecil Indonesia.
 
 PRINSIP:
@@ -67,49 +112,34 @@ PRINSIP:
 - Berikan TIMELINE konkret (minggu, bulan)
 - Format BAHASA INDONESIA sederhana untuk petani grassroot
 
-FORMAT RESPONS:
-```json
-{
-  "top_recommendation": {
+{context_str}
+
+Pertanyaan petani: {query}
+
+Berikan respons dalam format JSON dengan structure:
+{{
+  "top_recommendation": {{
     "crop": "NAMA TANAMAN",
     "confidence": "tinggi/sedang/rendah",
-    "reason": "Penjelasan singkat mengapa (cuaca/harga/musim)",
-    "timing": "Kapan tanam (hari/minggu ke depan)",
-    "expected_return": "Estimasi hasil/harga"
-  },
+    "reason": "Penjelasan singkat",
+    "timing": "Kapan tanam",
+    "expected_return": "Estimasi hasil"
+  }},
   "alternatives": [
-    {
-      "crop": "TANAMAN ALTERNATIF",
-      "reason": "Mengapa dipertimbangkan",
-      "timing": "Waktu tanam"
-    }
+    {{"crop": "...", "reason": "...", "timing": "..."}}
   ],
   "to_avoid": [
-    {
-      "crop": "TANAMAN DIHINDARI",
-      "reason": "Mengapa hindari (harga jatuh/cuaca jelek)"
-    }
+    {{"crop": "...", "reason": "..."}}
   ],
-  "action_items": [
-    "Langkah konkret 1",
-    "Langkah konkret 2"
-  ]
-}
-```
+  "action_items": ["Langkah 1", "Langkah 2"]
+}}
 """
 
-            # Call GPT-4o
-            response = self.openai_client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"{context_str}\n\nPertanyaan petani: {query}"}
-                ],
-                max_tokens=1500,
-                temperature=0.7
+            # Call Ollama via ai_engine
+            response_text = self.ai_engine.generate_response(
+                user_id="recommendation",
+                message=recommendation_prompt
             )
-
-            response_text = response.choices[0].message.content
 
             # Parse JSON from response
             try:
@@ -132,24 +162,46 @@ FORMAT RESPONS:
                 }
 
             logger.info(f"Recommendation generated successfully")
+            # Clear quota exceeded flag on success
+            self.quota_exceeded_until = None
             return recommendation
 
         except Exception as e:
-            logger.error(f"Error generating recommendation: {str(e)}")
+            error_str = str(e)
+            logger.error(f"Error generating recommendation: {error_str}")
+            
+            # Check if this is a quota/rate limit error (429)
+            if "429" in error_str or "quota" in error_str.lower() or "exceeded" in error_str.lower():
+                logger.warning("API quota exceeded, switching to fallback mode")
+                # Set quota exceeded for 1 minute to avoid hammering API
+                self.quota_exceeded_until = datetime.now() + timedelta(minutes=1)
+                return {
+                    **self._get_fallback_recommendation(query, price_data),
+                    "status": "fallback",
+                    "message": "⚠️ Sedang menggunakan rekomendasi offline. Respons terbatas namun tetap berguna untuk Anda."
+                }
+            
             return {
                 "status": "error",
-                "message": f"Failed to generate recommendation: {str(e)}"
+                "message": f"Failed to generate recommendation: {error_str}"
             }
 
     def format_recommendation_response(self, recommendation: Dict[str, Any]) -> str:
-        """Format recommendation for WhatsApp message"""
+        """Format recommendation for Telegram message"""
         if recommendation.get("status") == "error":
             return f"❌ Error: {recommendation.get('message', 'Unknown error')}"
 
-        if "raw_recommendation" in recommendation:
-            return recommendation["raw_recommendation"]
+        # Add fallback notice if applicable
+        lines = []
+        if recommendation.get("status") == "fallback":
+            lines.append("⚠️ REKOMENDASI OFFLINE (API sedang maintenance)\n")
+            lines.append(recommendation.get("message", ""))
+            lines.append("")
 
-        lines = ["🌾 REKOMENDASI TANAM\n"]
+        if "raw_recommendation" in recommendation:
+            return "\n".join(lines) + recommendation["raw_recommendation"] if lines else recommendation["raw_recommendation"]
+
+        lines.append("🌾 REKOMENDASI TANAM\n")
 
         # Top recommendation
         if "top_recommendation" in recommendation:

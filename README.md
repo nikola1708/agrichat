@@ -1,6 +1,6 @@
-# 🌾 TaniWise Bot - WhatsApp AI Assistant untuk Petani Indonesia
+# 🌾 TaniWise Bot - Telegram AI Assistant untuk Petani Indonesia
 
-Pranata Mangsa adalah asisten keputusan berbasis **WhatsApp** yang membantu petani kecil Indonesia menentukan apa, kapan, dan bagaimana menanam berdasarkan prediksi harga, cuaca, dan diagnosis lahan real-time — tanpa perlu instalasi aplikasi atau pelatihan khusus.
+Pranata Mangsa adalah asisten keputusan berbasis **Telegram** yang membantu petani kecil Indonesia menentukan apa, kapan, dan bagaimana menanam berdasarkan prediksi harga, cuaca, dan diagnosis lahan real-time.
 
 ---
 
@@ -43,10 +43,10 @@ Pranata Mangsa adalah asisten keputusan berbasis **WhatsApp** yang membantu peta
 │                    PETANI (WhatsApp User)                    │
 └─────────────────┬───────────────────────────────────────────┘
                   │
-                  ↓ Fonnte API Webhook
+                  ↓ Telegram Bot Webhook
 ┌─────────────────────────────────────────────────────────────┐
 │               AZURE FUNCTIONS (Serverless)                   │
-│         fontte_webhook - Main Handler                        │
+│         telegram_webhook - Main Handler                      │
 └──────┬─────────────────────────────────────────────┬────────┘
        ↓                                              ↓
    ┌────────────────────┐      ┌──────────────────────────┐
@@ -70,11 +70,11 @@ Pranata Mangsa adalah asisten keputusan berbasis **WhatsApp** yang membantu peta
    └────────────────────────────────────────────────┘
        ↓
    ┌────────────────────────────────────────────────┐
-   │   Fonnte API Response                          │
+   │   Telegram API Response                       │
    └────────────┬───────────────────────────────────┘
                 ↓
    ┌────────────────────────────────────────────────┐
-   │   PETANI (WhatsApp Reply)                      │
+   │   PETANI (Telegram Reply)                      │
    │   "Tanam PADI minggu depan, harga naik 5%"    │
    └────────────────────────────────────────────────┘
 ```
@@ -86,7 +86,7 @@ Pranata Mangsa adalah asisten keputusan berbasis **WhatsApp** yang membantu peta
 ### Prerequisites
 - Python 3.10+
 - Azure Account (Function App, Cosmos DB, AI services)
-- Fonnte Account (WhatsApp Business API)
+- Telegram Bot token
 - Git
 
 ### Installation
@@ -107,15 +107,15 @@ pip install -r requirements.txt
 
 # 4. Setup environment variables
 cp local.settings.json.template local.settings.json
-# Edit local.settings.json dengan credentials Azure & Fonnte Anda
+# Edit local.settings.json dengan credentials Azure & Telegram Anda
 
 # 5. Run locally
 func start
 
 # 6. Test webhook
-curl -X POST http://localhost:7071/api/fontte_webhook \
+curl -X POST http://localhost:7071/api/telegram_webhook \
   -H "Content-Type: application/json" \
-  -d '{"sender": "6281234567890", "type": "text", "message": "Tanam apa sekarang?"}'
+  -d '{"message": {"chat": {"id": "123456789"}, "text": "Tanam apa sekarang?"}}'
 ```
 
 ### Deploy to Azure
@@ -127,9 +127,8 @@ az login
 # Publish function app
 az functionapp publish taniwise-bot-dev
 
-# Setup Fonnte webhook
-# Go to https://panel.fonnte.com → Pengaturan → Webhook
-# Set: https://taniwise-bot-dev.azurewebsites.net/api/fontte_webhook
+# Setup Telegram webhook
+# Set webhook URL to: https://taniwise-bot-dev.azurewebsites.net/api/telegram_webhook
 ```
 
 ---
@@ -170,8 +169,7 @@ Required variables (set in `local.settings.json` or Azure Portal):
   "OPENAI_API_KEY": "sk-...",
   "OPENAI_ENDPOINT": "https://xxx.openai.azure.com/",
   "OPENAI_MODEL": "gpt-4",
-  "FONNTE_API_TOKEN": "...",
-  "FONNTE_DEVICE_ID": "...",
+  "TELEGRAM_BOT_TOKEN": "...",
   "AZURE_VISION_KEY": "...",
   "AZURE_VISION_ENDPOINT": "https://xxx.api.cognitive.microsoft.com/",
   "OPENWEATHERMAP_API_KEY": "...",
@@ -185,16 +183,14 @@ Required variables (set in `local.settings.json` or Azure Portal):
 
 ### Webhook Handler
 ```
-POST /api/fontte_webhook
+POST /api/telegram_webhook
 
 Payload:
 {
-  "sender": "6281234567890",
-  "type": "text|image|location",
-  "message": "Tanam apa sekarang?",
-  "media_url": "https://...",
-  "latitude": -6.1234,
-  "longitude": 106.5678
+  "message": {
+    "chat": {"id": "123456789"},
+    "text": "Tanam apa sekarang?"
+  }
 }
 
 Response:
@@ -228,31 +224,35 @@ Response:
 func start
 
 # Test text message
-curl -X POST http://localhost:7071/api/fontte_webhook \
+curl -X POST http://localhost:7071/api/telegram_webhook \
   -H "Content-Type: application/json" \
   -d '{
-    "sender": "6281234567890",
-    "type": "text",
-    "message": "Tanam apa sekarang?"
+    "message": {
+      "chat": {"id": "123456789"},
+      "text": "Tanam apa sekarang?"
+    }
   }'
 
 # Test image diagnosis
-curl -X POST http://localhost:7071/api/fontte_webhook \
+curl -X POST http://localhost:7071/api/telegram_webhook \
   -H "Content-Type: application/json" \
   -d '{
-    "sender": "6281234567890",
-    "type": "image",
-    "media_url": "https://upload.wikimedia.org/wikipedia/commons/..."
+    "message": {
+      "chat": {"id": "123456789"},
+      "photo": [
+        {"file_id": "ABC123", "file_size": 12345}
+      ]
+    }
   }'
 
 # Test location
-curl -X POST http://localhost:7071/api/fontte_webhook \
+curl -X POST http://localhost:7071/api/telegram_webhook \
   -H "Content-Type: application/json" \
   -d '{
-    "sender": "6281234567890",
-    "type": "location",
-    "latitude": -6.1234,
-    "longitude": 106.5678
+    "message": {
+      "chat": {"id": "123456789"},
+      "location": {"latitude": -6.1234, "longitude": 106.5678}
+    }
   }'
 ```
 
@@ -314,11 +314,11 @@ Amankan panen cabai Anda sekarang!
 
 | Issue | Solution |
 |-------|----------|
-| Webhook tidak terima message | ✓ Check webhook URL di Fonnte Panel ✓ Verify Function App running |
+| Webhook tidak terima message | ✓ Check webhook URL di Telegram Bot settings ✓ Verify Function App running |
 | "403 Unauthorized" | ✓ Check API keys di local.settings.json ✓ Verify Azure credentials |
 | Diagnosis timeout | ✓ Check image URL accessible ✓ Optimize GPT-4o prompt |
 | Cosmos DB error | ✓ Verify connection string format ✓ Check database/collection created |
-| Fonnte reply tidak terkirim | ✓ Check FONNTE_API_TOKEN valid ✓ Check phone format (628...) |
+| Telegram reply tidak terkirim | ✓ Check TELEGRAM_BOT_TOKEN valid |
 
 Lihat [SETUP_CHECKLIST.md](docs/SETUP_CHECKLIST.md) untuk troubleshooting detail.
 
