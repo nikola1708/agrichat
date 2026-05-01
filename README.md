@@ -1,6 +1,6 @@
 #  AgiChat Bot - AI Assistant untuk Petani Indonesia
 
-**AgiChat** adalah asisten keputusan berbasis **Telegram** untuk petani kecil Indonesia. Memberikan rekomendasi tanam & diagnosis tanaman berdasarkan cuaca lokal, harga pasar, dan analisis gambar - **sepenuhnya offline & gratis** menggunakan AI lokal.
+**Temantani** adalah asisten keputusan berbasis **Telegram** untuk petani kecil Indonesia. Memberikan rekomendasi tanam & diagnosis tanaman berdasarkan cuaca lokal, harga pasar, dan analisis gambar - **sepenuhnya offline & gratis** menggunakan AI lokal.
 
 ##  Features
 
