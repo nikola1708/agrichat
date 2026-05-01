@@ -1,354 +1,147 @@
-# 🌾 TaniWise Bot - Telegram AI Assistant untuk Petani Indonesia
+# 🌾 AgiChat Bot - Telegram AI Assistant untuk Petani Indonesia
 
-Pranata Mangsa adalah asisten keputusan berbasis **Telegram** yang membantu petani kecil Indonesia menentukan apa, kapan, dan bagaimana menanam berdasarkan prediksi harga, cuaca, dan diagnosis lahan real-time.
-
----
-
-## 🎯 Problem & Solution
-
-### Problem
-- **87% petani Indonesia adalah petani gurem** (lahan < 0,5 hektar) dengan keterbatasan akses informasi
-- **73% petani membuat keputusan tanam berdasarkan tetangga mereka**, bukan data pasar
-- Hasil: Oversupply periodik → **harga jatuh 60-80% saat panen raya**
-- El Niño 2026 memprediksi gagal panen masif → Perlu prediksi cuaca & rekomendasi
-
-### Solution
-**Pranata mangsa** = WhatsApp Bot + AI Reasoning + Real-time Data
-
-- 📱 **No App Download** — Pakai WhatsApp yang sudah ada
-- 🤖 **AI-Powered Recommendations** — GPT-4o untuk analisis harga + cuaca + kondisi lahan
-- 🔍 **Plant Disease Diagnosis** — Foto WhatsApp → Azure Custom Vision + GPT-4o Vision
-- ⚠️ **Weather Alerts** — Notifikasi cuaca ekstrem otomatis
-- 📊 **Decision Infrastructure** — Cosmos DB centralized untuk big data pertanian nasional
-
----
+**AgiChat** adalah asisten keputusan berbasis **Telegram** untuk petani kecil Indonesia. Memberikan rekomendasi tanam & diagnosis tanaman berdasarkan cuaca lokal, harga pasar, dan analisis gambar - **sepenuhnya offline & gratis** menggunakan AI lokal.
 
 ## ✨ Features
 
 | Fitur | Deskripsi | Tech |
 |-------|-----------|------|
-| 💬 **Text Chat** | Tanya "Tanam apa sekarang?" → Rekomendasi spesifik | GPT-4o |
-| 📸 **Plant Diagnosis** | Kirim foto tanaman → Deteksi penyakit + solusi | Azure Vision + GPT-4o Vision |
-| 🌤️ **Weather Alerts** | Notifikasi cuaca ekstrem otomatis | OpenWeatherMap API |
-| 💰 **Price Tracking** | Harga pasar real-time per komoditas | PIHPS API |
-| 📍 **Geo-Tagging** | Simpan lokasi → Rekomendasi spesifik per zona | Cosmos DB |
-| 📊 **Historical Memory** | Tracking riwayat tanam & performa | Cosmos DB |
+|  **Text Chat** | Tanya "Tanam apa sekarang?" → Rekomendasi langsung | Mistral 7B (llama.cpp) |
+|  **Weather Context** | Cuaca real-time diintegrasikan ke rekomendasi | OpenWeatherMap API |
+|  **Price Tracking** | Tren harga pasar per komoditas | PIHPS API |
+|  **RAG Retrieval** | Knowledge base pertanian lokal (FAISS) | Sentence-Transformers |
+|  **Multi-Model Support** | Fallback ke Ollama jika diperlukan | llama.cpp + Ollama |
+|  **Fast Inference** | Respons <5 detik, 100% lokal | LM Studio / llama.cpp |
 
 ---
 
-## 🏗️ Architecture
+##  Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    PETANI (WhatsApp User)                    │
+│                    PETANI (Telegram User)                    │
 └─────────────────┬───────────────────────────────────────────┘
                   │
                   ↓ Telegram Bot Webhook
 ┌─────────────────────────────────────────────────────────────┐
 │               AZURE FUNCTIONS (Serverless)                   │
 │         telegram_webhook - Main Handler                      │
-└──────┬─────────────────────────────────────────────┬────────┘
-       ↓                                              ↓
-   ┌────────────────────┐      ┌──────────────────────────┐
-   │  Text Handler      │      │  Image Handler           │
-   │  (GPT-4o)          │      │  (Custom Vision +        │
-   │                    │      │   GPT-4o Vision)         │
-   └────────────────────┘      └──────────────────────────┘
-       ↓                                  ↓
-   ┌────────────────────────────────────────────────┐
-   │   Data Integration Layer                       │
-   │ - OpenWeatherMap (Cuaca)                       │
-   │ - PIHPS API (Harga)                            │
-   │ - BPS Data (Historical)                        │
-   └────────────────────────────────────────────────┘
+└──────┬────────────────────────────────────────────────────┬──┘
+       ↓                                                      ↓
+   ┌──────────────────┐                         ┌────────────────────┐
+   │ AI Response      │                         │ Data Integration   │
+   │ (llama.cpp       │                         │ • Weather API      │
+   │  + RAG)          │                         │ • Price API        │
+   └──────────────────┘                         └────────────────────┘
        ↓
-   ┌────────────────────────────────────────────────┐
-   │   COSMOS DB (NoSQL)                            │
-   │ - petani (profile + history)                   │
-   │ - diagnosis_history                            │
-   │ - weather_alerts                               │
-   └────────────────────────────────────────────────┘
+   ┌──────────────────────────────────────────────────────────┐
+   │   LOCAL INFERENCE (100% Offline Capable)                 │
+   │ - Mistral 7B (1.5GB) via llama.cpp                      │
+   │ - FAISS Index (Knowledge Base)                          │
+   │ - Fallback: Ollama/LocalAI                              │
+   └──────────────────────────────────────────────────────────┘
        ↓
-   ┌────────────────────────────────────────────────┐
-   │   Telegram API Response                       │
-   └────────────┬───────────────────────────────────┘
-                ↓
-   ┌────────────────────────────────────────────────┐
-   │   PETANI (Telegram Reply)                      │
-   │   "Tanam PADI minggu depan, harga naik 5%"    │
-   └────────────────────────────────────────────────┘
+   ┌──────────────────────────────────────────────────────────┐
+   │   PETANI (Telegram Response in 2-5 seconds)              │
+   │   "Tanam PADI minggu depan, harga naik 5%, cuaca OK"   │
+   └──────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🚀 Quick Start
+##  Quick Start (5 Minutes)
 
-### Prerequisites
-- Python 3.10+
-- Azure Account (Function App, Cosmos DB, AI services)
-- Telegram Bot token
-- Git
-
-### Installation
+See [QUICK_START_LLAMA.md](QUICK_START_LLAMA.md) for detailed setup.
 
 ```bash
-# 1. Clone repository
-git clone https://github.com/yourusername/taniwise-bot.git
-cd taniwise-bot
-
-# 2. Create virtual environment
+# 1. Setup environment
 python -m venv venv
-source venv/bin/activate  # macOS/Linux
-# or
 venv\Scripts\activate  # Windows
+# or source venv/bin/activate  # macOS/Linux
 
-# 3. Install dependencies
+# 2. Install dependencies
 pip install -r requirements.txt
 
-# 4. Setup environment variables
+# 3. Download model (Mistral 7B, ~1.5GB)
+mkdir models
+huggingface-cli download TheBloke/Mistral-7B-Instruct-v0.1-GGUF ^
+  mistral-7b-instruct-v0.1.Q4_K_M.gguf ^
+  --local-dir models --local-dir-use-symlinks False
+
+# 4. Configure local.settings.json
 cp local.settings.json.template local.settings.json
-# Edit local.settings.json dengan credentials Azure & Telegram Anda
+# Edit: Set LLAMACPP_MODEL_PATH to your model location
 
-# 5. Run locally
+# 5. Start bot
 func start
-
-# 6. Test webhook
-curl -X POST http://localhost:7071/api/telegram_webhook \
-  -H "Content-Type: application/json" \
-  -d '{"message": {"chat": {"id": "123456789"}, "text": "Tanam apa sekarang?"}}'
+# Or: python telegram_webhook/function_app.py
 ```
 
-### Deploy to Azure
+**That's it!** Bot responds to Telegram in 2-5 seconds. 🚀
 
-```bash
-# Login to Azure
-az login
 
-# Publish function app
-az functionapp publish taniwise-bot-dev
+##  Environment Variables
 
-# Setup Telegram webhook
-# Set webhook URL to: https://taniwise-bot-dev.azurewebsites.net/api/telegram_webhook
-```
-
----
-
-## 📋 Project Structure
-
-```
-taniwise-bot/
-├── fontte_webhook/
-│   ├── function_app.py          # Main webhook handler
-│   └── function_app.json
-├── shared/
-│   ├── __init__.py
-│   ├── ai_vision.py             # Plant diagnosis (Custom Vision + GPT-4o)
-│   ├── cosmos_db.py             # Database operations
-│   ├── recommendation_engine.py  # Recommendation logic (GPT-4o)
-│   └── weather_service.py        # Weather data integration
-├── requirements.txt              # Python dependencies
-├── local.settings.json.template  # Environment template
-├── host.json                     # Azure Functions config
-├── README.md
-└── docs/
-    ├── SETUP_CHECKLIST.md       # Step-by-step setup guide
-    ├── FONNTE_AZURE_INTEGRATION_GUIDE.md
-    └── API_REFERENCE.md
-```
-
----
-
-## 🔑 Environment Variables
-
-Required variables (set in `local.settings.json` or Azure Portal):
+**Minimal setup** (`local.settings.json`):
 
 ```json
 {
-  "COSMOS_CONNECTION_STRING": "DefaultEndpointProtocol=...",
-  "COSMOS_DATABASE_ID": "taniwise-prod",
-  "OPENAI_API_KEY": "sk-...",
-  "OPENAI_ENDPOINT": "https://xxx.openai.azure.com/",
-  "OPENAI_MODEL": "gpt-4",
-  "TELEGRAM_BOT_TOKEN": "...",
-  "AZURE_VISION_KEY": "...",
-  "AZURE_VISION_ENDPOINT": "https://xxx.api.cognitive.microsoft.com/",
-  "OPENWEATHERMAP_API_KEY": "...",
-  "PIHPS_API_KEY": "..." (optional)
+  "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+  "FUNCTIONS_WORKER_RUNTIME": "python",
+  
+  "AI_ENGINE": "llamacpp",
+  "LLAMACPP_MODEL_PATH": "C:\\project\\agrichat\\models\\mistral-7b-instruct-v0.1.Q4_K_M.gguf",
+  "LLAMACPP_N_CTX": "512",
+  "LLAMACPP_N_THREADS": "4",
+  "LLAMACPP_N_GPU_LAYERS": "0",
+  
+  "TELEGRAM_BOT_TOKEN": "YOUR_TOKEN_HERE",
+  "OPENWEATHERMAP_API_KEY": "YOUR_API_KEY",
+  
+  "RAG_TOP_K": "3",
+  "RAG_EMBEDDING_MODEL": "sentence-transformers/all-MiniLM-L6-v2"
 }
 ```
 
----
-
-## 📊 API Endpoints
-
-### Webhook Handler
-```
-POST /api/telegram_webhook
-
-Payload:
-{
-  "message": {
-    "chat": {"id": "123456789"},
-    "text": "Tanam apa sekarang?"
-  }
-}
-
-Response:
-{
-  "status": "success",
-  "message": "Webhook processed",
-  "phone": "6281234567890"
-}
-```
-
-### Health Check
-```
-GET /api/health
-
-Response:
-{
-  "status": "healthy",
-  "timestamp": "2024-04-21T10:30:00Z",
-  "version": "1.0"
-}
+**For Ollama fallback**:
+```json
+"OLLAMA_URL": "http://localhost:11434",
+"OLLAMA_MODEL": "mistral:latest"
 ```
 
 ---
 
-## 🧪 Testing
+##  Tech Stack
 
-### Local Testing
+| Component | Technology | Why |
+|-----------|-----------|-----|
+| **AI Model** | Mistral 7B (llama.cpp) | Fast, accurate, offline |
+| **Bot Framework** | Telegram Bot API | ~500M daily active users |
+| **Knowledge Base** | FAISS + Sentence-Transformers | Real-time RAG retrieval |
+| **Inference** | llama.cpp (C++) | <5s response time |
+| **Fallback** | Ollama / LocalAI | Flexible deployment |
+| **Cloud** | Azure Functions | Serverless (optional) |
 
-```bash
-# Start local function
-func start
+---
+##  Documentation
 
-# Test text message
-curl -X POST http://localhost:7071/api/telegram_webhook \
-  -H "Content-Type: application/json" \
-  -d '{
-    "message": {
-      "chat": {"id": "123456789"},
-      "text": "Tanam apa sekarang?"
-    }
-  }'
-
-# Test image diagnosis
-curl -X POST http://localhost:7071/api/telegram_webhook \
-  -H "Content-Type: application/json" \
-  -d '{
-    "message": {
-      "chat": {"id": "123456789"},
-      "photo": [
-        {"file_id": "ABC123", "file_size": 12345}
-      ]
-    }
-  }'
-
-# Test location
-curl -X POST http://localhost:7071/api/telegram_webhook \
-  -H "Content-Type: application/json" \
-  -d '{
-    "message": {
-      "chat": {"id": "123456789"},
-      "location": {"latitude": -6.1234, "longitude": 106.5678}
-    }
-  }'
-```
-
-### Azure Logs
-
-```bash
-# View live logs
-az functionapp log tail --name taniwise-bot-dev --resource-group taniwise-rg
-
-# Or check Application Insights
-# Azure Portal → Function App → Application Insights → Logs
-```
+- **[QUICK_START_LLAMA.md](QUICK_START_LLAMA.md)** — 5-minute setup guide
+- **[local.settings.json.template](local.settings.json.template)** — Environment reference
 
 ---
 
-## 📱 WhatsApp Bot Interaction Examples
+##  Contributing
 
-### Example 1: Text Recommendation
-```
-User: "Tanam apa sekarang?"
-
-Bot: 🌾 REKOMENDASI TANAM
-Berdasarkan cuaca dan harga pasar hari ini:
-
-✅ PADI - Pilihan Terbaik
-   • Cuaca: Stabil 90 hari ke depan
-   • Harga: Rp3.500/kg (naik 5%)
-   • Waktu tanam: Mulai minggu depan
-   • Estimasi hasil: Normal, risiko rendah
-
-⚠️ CABAI MERAH - Hindar sekarang
-   • Harga: Turun 10% (jangan tanam)
-```
-
-### Example 2: Image Diagnosis
-```
-User: [Sends photo of sick plant]
-
-Bot: 🔍 ANALISIS FOTO TANAMAN
-Kondisi: Busuk Patogen
-Keyakinan: 92%
-
-Nutrisi: Deficit Kalium
-
-💡 Rekomendasi:
-Potong 5cm area busuk, semprotkan fungisida Benomyl.
-```
-
-### Example 3: Weather Alert
-```
-Bot (Proactive): ⚠️ ALERT CUACA EKSTREM
-Hujan lebat diprediksi Jum'at jam 2-5 sore.
-Amankan panen cabai Anda sekarang!
-```
+To improve recommendations:
+1. Add training data to `docs/` folder
+2. Run `python shared/build_faiss_index.py --src docs`
+3. Test with `func start`
 
 ---
 
-## 🔧 Troubleshooting
+## Support
 
-| Issue | Solution |
-|-------|----------|
-| Webhook tidak terima message | ✓ Check webhook URL di Telegram Bot settings ✓ Verify Function App running |
-| "403 Unauthorized" | ✓ Check API keys di local.settings.json ✓ Verify Azure credentials |
-| Diagnosis timeout | ✓ Check image URL accessible ✓ Optimize GPT-4o prompt |
-| Cosmos DB error | ✓ Verify connection string format ✓ Check database/collection created |
-| Telegram reply tidak terkirim | ✓ Check TELEGRAM_BOT_TOKEN valid |
-
-Lihat [SETUP_CHECKLIST.md](docs/SETUP_CHECKLIST.md) untuk troubleshooting detail.
-
----
-
-## 📈 Performance Metrics
-
-Target untuk MVP:
-
-| Metric | Target | Current |
-|--------|--------|---------|
-| Response time | < 3 detik | TBD |
-| Diagnosis accuracy | 85%+ | TBD |
-| Recommendation adoption rate | 40%+ | TBD |
-| Active users (month 1) | 500+ | TBD |
-| Uptime | 99.5%+ | TBD |
-
----
-
-MVP Build Plan
-Hour 0-1: Foundation Setup
-
-REQ-1 — Set up Azure Functions project with WhatsApp webhook endpoint and Cosmos DB
-
-    Create Azure Function App (Python/Node.js)
-    Set up local development environment
-    Create Cosmos DB database for farmer profiles
-    Generate WhatsApp webhook URL (you'll use this to register with Meta)
-
-Time estimate: 45 min
+Questions? Open an issue or check the [QUICK_START_LLAMA.md](QUICK_START_LLAMA.md) guide.
 Deliverable: Working Azure Function that can receive webhook calls
 Hour 1-3: Message Intake
 
@@ -421,25 +214,9 @@ REQ-9 (Bonus) — Test end-to-end
     Verify responses come back correctly
     Debug any issues
 
----
 
 
-
-## 📄 License
-
-MIT License — See LICENSE file
-
----
-
-
-
-## 📞 Support
-
-
-
-## 🚀 Get Started
-
-⭐ Star this repo if you find it helpful!
+ Star this repo if you find it helpful!
 
 ```bash
 # Clone and setup
